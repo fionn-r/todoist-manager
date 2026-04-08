@@ -1,0 +1,10 @@
+[project]
+name = "todoist-manager"
+version = "0.1.0"
+description = "Manages housekeeping tasks in a todoist account"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "python-dotenv>=1.0.0",
+  "todoist-api-python>=4.0.0",
+]
