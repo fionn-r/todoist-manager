@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 from todoist_api_python.api import TodoistAPI
 from todoist_api_python.models import Task
 
+LABEL_TO_MATCH_START_TASKS = "start"
+
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -21,12 +23,16 @@ def process_start_tasks(api: TodoistAPI, timezone: str | None) -> None:
     If the due date is today, remove the @start label and the due date.
     """
     try:
-        tasks_iterator = api.get_tasks()
+        tasks_iterator = api.get_tasks(label=LABEL_TO_MATCH_START_TASKS)
 
         tasks: list[Task] = []
 
         for tasks in tasks_iterator:
             tasks.extend(tasks)
+
+        # Make sure all tasks are unique in the list based on their ID
+        unique_tasks = {task.id: task for task in tasks}.values()
+        tasks = list(unique_tasks)
 
         logger.info(f"Fetched {len(tasks)} tasks from Todoist")
 
@@ -44,15 +50,19 @@ def process_start_tasks(api: TodoistAPI, timezone: str | None) -> None:
 
         processed_count = 0
 
+        logger.info(f"{'\n'.join(str(task) for task in tasks)}")
+
         for task in tasks:
-            if task.labels and "start" in task.labels and task.due:
+            if task.labels and LABEL_TO_MATCH_START_TASKS in task.labels and task.due:
                 due: date = cast(date, task.due.date)
 
                 if due == today:
                     logger.info(f"Processing task: {task.content} (ID: {task.id})")
 
                     updated_labels = [
-                        label for label in task.labels if label != "start"
+                        label
+                        for label in task.labels
+                        if label != LABEL_TO_MATCH_START_TASKS
                     ]
 
                     api.update_task(
