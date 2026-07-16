@@ -27,14 +27,16 @@ def process_start_tasks(api: TodoistAPI, timezone: str | None) -> None:
 
         tasks: list[Task] = []
 
-        for tasks in tasks_iterator:
-            tasks.extend(tasks)
+        for page in tasks_iterator:
+            tasks.extend(page)
+        
+        initial_task_count = len(tasks)
 
         # Make sure all tasks are unique in the list based on their ID
         unique_tasks = {task.id: task for task in tasks}.values()
         tasks = list(unique_tasks)
 
-        logger.info(f"Fetched {len(tasks)} tasks from Todoist")
+        logger.info(f"Fetched {len(tasks)} tasks from Todoist ({initial_task_count - len(tasks)} duplicates removed)")
 
         # Get today's date in configured timezone or system timezone
         if timezone:
@@ -56,7 +58,7 @@ def process_start_tasks(api: TodoistAPI, timezone: str | None) -> None:
             if task.labels and LABEL_TO_MATCH_START_TASKS in task.labels and task.due:
                 due: date = cast(date, task.due.date)
 
-                if due == today:
+                if due <= today:
                     logger.info(f"Processing task: {task.content} (ID: {task.id})")
 
                     updated_labels = [
