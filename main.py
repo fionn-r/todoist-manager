@@ -1,12 +1,14 @@
 import argparse
+import calendar
 import json
 import logging
 import os
+import re
 import tomllib
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import cast
 from zoneinfo import ZoneInfo
@@ -16,6 +18,12 @@ from todoist_api_python.api import TodoistAPI
 from todoist_api_python.models import Task
 
 LABEL_TO_MATCH_START_TASKS = "start"
+LABEL_TO_MATCH_RECURRING_TASKS = "recurring"
+REPEAT_PATTERN = re.compile(r"^\s*repeat:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+INTERVAL_PATTERN = re.compile(
+    r"\bevery!?\s+(other\s+|\d+\s+)?(day|week|month|year)s?\b", re.IGNORECASE
+)
+COMPLETED_LOOKBACK = timedelta(days=7)
 SYNC_API_URL = "https://api.todoist.com/api/v1/sync"
 CONTEXTS_CONFIG_PATH = Path(__file__).parent / "contexts.toml"
 MANAGED_FILTER_DESCRIPTION = (
@@ -129,6 +137,142 @@ def process_start_tasks(api: TodoistAPI, tz: ZoneInfo, dry_run: bool) -> None:
 
     except Exception as e:
         logger.error(f"Error processing tasks: {e}")
+        raise
+
+
+def parse_repeat_interval(text: str) -> tuple[int, str] | None:
+    """
+    Read the interval from a recurrence like "every! 2 months starting 1 dec".
+    Returns (count, unit) or None if there is no simple interval.
+    """
+    match = INTERVAL_PATTERN.search(text)
+    if not match:
+        return None
+
+    amount = (match.group(1) or "").strip().lower()
+    count = 2 if amount == "other" else int(amount or 1)
+    return count, match.group(2).lower()
+
+
+def add_interval(start: date, count: int, unit: str) -> date:
+    """Add count units to a date, clamping to the end of the month (31 Dec + 2 months is 28 Feb)."""
+    if unit == "day":
+        return start + timedelta(days=count)
+    if unit == "week":
+        return start + timedelta(weeks=count)
+
+    months = count * 12 if unit == "year" else count
+    year, month = divmod(start.month - 1 + months, 12)
+    year += start.year
+    month += 1
+    day = min(start.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def process_recurring_tasks(api: TodoistAPI, tz: ZoneInfo, dry_run: bool) -> None:
+    """
+    Keep @recurring tasks undated once they're due, so they can't go overdue,
+    and bring them back one interval after they're completed.
+
+    The interval lives in a "Repeat: every ..." description line, taken from
+    the task's own recurrence (e.g. "every! 2 months") when its date is removed.
+    """
+    try:
+        now = datetime.now(tz)
+        today = now.date()
+
+        # Reopen completed tasks first, so any whose next start has already
+        # passed are made undated below in the same run
+        completed: list[Task] = []
+
+        for page in api.get_completed_tasks_by_completion_date(
+            since=now - COMPLETED_LOOKBACK, until=now
+        ):
+            completed.extend(page)
+
+        completed_ids = {
+            task.id
+            for task in completed
+            if task.labels and LABEL_TO_MATCH_RECURRING_TASKS in task.labels
+        }
+        logger.info(f"Found {len(completed_ids)} completed @recurring tasks in the last {COMPLETED_LOOKBACK.days} days")
+
+        reopened_count = 0
+
+        for task_id in completed_ids:
+            # Re-fetch so tasks reopened on an earlier run are skipped
+            task = api.get_task(task_id)
+            if not task.is_completed:
+                continue
+
+            repeat = REPEAT_PATTERN.search(task.description or "")
+            interval = parse_repeat_interval(repeat.group(1)) if repeat else None
+            if interval is None:
+                logger.warning(
+                    f"Not reopening {task.content}: no 'Repeat: every ...' line in its description"
+                )
+                continue
+
+            completed_at = cast(datetime, task.completed_at)
+            if completed_at.tzinfo is None:
+                completed_at = completed_at.replace(tzinfo=ZoneInfo("UTC"))
+            next_start = add_interval(completed_at.astimezone(tz).date(), *interval)
+
+            if dry_run:
+                logger.info(f"[dry run] Would reopen {task.content} starting {next_start}")
+                continue
+
+            api.uncomplete_task(task.id)
+            api.update_task(task_id=task.id, due_date=next_start)
+
+            reopened_count += 1
+            logger.info(f"Reopened {task.content} starting {next_start}")
+
+        logger.info(f"Reopened {reopened_count} @recurring tasks")
+
+        # Remove the date from tasks whose start date has arrived
+        tasks: list[Task] = []
+
+        for page in api.get_tasks(label=LABEL_TO_MATCH_RECURRING_TASKS):
+            tasks.extend(page)
+
+        tasks = list({task.id: task for task in tasks}.values())
+        floated_count = 0
+
+        for task in tasks:
+            if not task.due or cast(date, task.due.date) > today:
+                continue
+
+            # Removing the date drops its recurrence, so keep it as a Repeat: line
+            description = task.description or ""
+            if not REPEAT_PATTERN.search(description):
+                if not task.due.is_recurring or parse_repeat_interval(task.due.string) is None:
+                    logger.warning(
+                        f"Skipping {task.content}: give it a recurrence like 'every! 2 months' "
+                        "or a 'Repeat: every 2 months' description line"
+                    )
+                    continue
+                description = f"{description}\nRepeat: {task.due.string}".strip()
+
+            if dry_run:
+                logger.info(f"[dry run] Would remove due date from: {task.content}")
+                if description != task.description:
+                    logger.info(f"[dry run] Would add 'Repeat: {task.due.string}' to: {task.content}")
+                continue
+
+            api.update_task(
+                task_id=task.id,
+                due_string="no date",
+                description=description if description != task.description else None,
+            )
+
+            floated_count += 1
+            logger.info(f"Removed due date from: {task.content}")
+
+        logger.info(f"Removed due dates from {floated_count} @recurring tasks")
+
+    except Exception as e:
+        logger.error(f"Error processing @recurring tasks: {e}")
         raise
 
 
@@ -372,6 +516,9 @@ def main():
 
     state = sync_request(api_token, sync_token="*", resource_types=["user", "filters"])
     tz = resolve_timezone(state["user"], os.getenv("TIMEZONE"))
+
+    # Process @recurring tasks
+    process_recurring_tasks(api, tz, args.dry_run)
 
     # Process @start tasks
     process_start_tasks(api, tz, args.dry_run)

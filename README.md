@@ -11,6 +11,16 @@ A housekeeping service for Todoist that automatically manages tasks based on spe
   - Removes the due date
 - Useful for tasks you want to start working on when they become due
 
+### @recurring Label Processing
+- For chores like "fertilise plants" that come back every so often but should never be overdue
+- Create one with Todoist's own syntax, e.g. `Fertilise plants every! 2 months starting 1 dec @recurring`
+- When the due date arrives the date is removed, so the task shows up undated and can't go overdue
+  - The recurrence is kept as a `Repeat: every! 2 months starting 1 dec` line in the description
+  - You can also write a `Repeat: every 6 weeks` line yourself instead of giving the task a recurrence
+- When you complete it, it's reopened with a due date one interval after the day you completed it
+- Intervals are `every [N|other] day/week/month/year`; anything after that (like `starting ...`) is ignored
+- To stop it recurring, remove the `@recurring` label before completing it, or delete the task
+
 ### Context Views
 - Generates a `<base> - <context>` filter (e.g. `Top - Home`, `Top - Office`, `Top - Out`) for every base filter and context in `contexts.toml`
 - Each view is the base filter with some terms hidden, e.g. `Top - Home` hides `@office` tasks
