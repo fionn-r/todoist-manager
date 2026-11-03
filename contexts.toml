@@ -1,0 +1,40 @@
+# Context views generated from base filters.
+#
+# For every base filter and every context, a "<base> - <context>" filter is
+# kept in Todoist: a copy of the base filter with extra terms hidden. Keep
+# editing the base filters in Todoist; the views follow on the next run.
+#
+# Terms are Todoist filter syntax (@label, #Project, #Project*, p4, ...). Each
+# one is added as `& !(term)` to every comma-separated section of the base.
+#
+# Rules hide more terms while their condition holds (all checks must match):
+#   when     = { ... }   rule applies only while this holds
+#   unless   = { ... }   rule applies except while this holds
+#     time = "HH:MM-HH:MM"   windows may wrap past midnight, e.g. "22:00-02:00"
+#     days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+#   contexts = [...]     limit a rule to some contexts (default: all)
+#
+# Run `uv run python main.py --dry-run` to preview the generated queries.
+
+bases = ["Top", "Quick"]
+
+[contexts]
+Home   = { hide = ["@office"] }
+Office = { hide = ["@home"] }
+Out    = { hide = ["@home", "@office", "@comp"] }
+
+# Morning tasks only between 5am and 10am
+[[rules]]
+hide   = ["@morning"]
+unless = { time = "05:00-10:00" }
+
+# Evening tasks only between 6pm and midnight
+[[rules]]
+hide   = ["@evening"]
+unless = { time = "18:00-00:00" }
+
+# No work tasks at home or out on weekends
+[[rules]]
+hide     = ["#Work*"]
+when     = { days = ["sat", "sun"] }
+contexts = ["Home", "Out"]

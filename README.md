@@ -11,6 +11,14 @@ A housekeeping service for Todoist that automatically manages tasks based on spe
   - Removes the due date
 - Useful for tasks you want to start working on when they become due
 
+### Context Views
+- Generates a `<base> - <context>` filter (e.g. `Top - Home`, `Top - Office`, `Top - Out`) for every base filter and context in `contexts.toml`
+- Each view is the base filter with some terms hidden, e.g. `Top - Home` hides `@office` tasks
+- Rules hide more terms by time of day or day of week, e.g. `@evening` tasks are hidden outside 18:00–00:00
+- Keep editing the base filter in Todoist; the views are regenerated from it on every run and only written when they change
+- Edit `contexts.toml` to change contexts and rules; the file header documents the options
+- Preview without writing anything: `uv run python main.py --dry-run`
+
 ## Setup
 
 ### 1. Install Dependencies
@@ -32,7 +40,7 @@ cp .env.example .env
    - Paste it into the `.env` file
 
 3. (Optional) Customize the timezone in `.env`:
-   - By default, uses your system's local timezone
+   - By default, uses your Todoist account's timezone
    - To override, uncomment and set the `TIMEZONE` variable
    - Use IANA timezone names (e.g., `America/New_York`, `Europe/London`)
    - See [list of timezones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)

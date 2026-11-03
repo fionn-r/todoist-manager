@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Todoist Manager every 15 minutes
+Requires=todoist-manager.service
+
+[Timer]
+# Frequent runs keep the context views in step with the time windows in
+# contexts.toml; runs that change nothing make no writes
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
