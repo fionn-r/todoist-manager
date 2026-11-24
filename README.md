@@ -6,9 +6,10 @@ A housekeeping service for Todoist that automatically manages tasks based on spe
 
 ### @start Label Processing
 - Checks all tasks for the `@start` label and a due date
-- When the due date matches today's date:
+- When the due date arrives (or has passed):
   - Removes the `@start` label
   - Removes the due date
+- If the due date has a time, it waits until that time before doing this
 - Useful for tasks you want to start working on when they become due
 
 ### @recurring Label Processing

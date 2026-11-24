@@ -77,10 +77,35 @@ def resolve_timezone(user: dict, override: str | None) -> ZoneInfo:
     return ZoneInfo(timezone)
 
 
+def due_date_of(due: date | datetime, tz: ZoneInfo) -> date:
+    """
+    The due day in the account timezone. Tasks with a due time come back as
+    a datetime (timezone-aware if the task has a fixed timezone, otherwise
+    floating local time) rather than a plain date.
+    """
+    if isinstance(due, datetime):
+        return due.astimezone(tz).date() if due.tzinfo else due.date()
+    return due
+
+
+def start_reached(due: date | datetime, now: datetime) -> bool:
+    """
+    True once a due has arrived: from the start of its day for a plain date,
+    or from its time onwards when it has one. Floating times (no timezone)
+    are read as wall-clock time in the account timezone, like Todoist does.
+    """
+    if isinstance(due, datetime):
+        if due.tzinfo:
+            return due <= now
+        return due <= now.replace(tzinfo=None)
+    return due <= now.date()
+
+
 def process_start_tasks(api: TodoistAPI, tz: ZoneInfo, dry_run: bool) -> None:
     """
     Process tasks with @start label and due date.
-    If the due date is today, remove the @start label and the due date.
+    Once the due date (and time, if it has one) arrives, remove the @start
+    label and the due date.
     """
     try:
         tasks_iterator = api.get_tasks(label=LABEL_TO_MATCH_START_TASKS)
@@ -98,8 +123,8 @@ def process_start_tasks(api: TodoistAPI, tz: ZoneInfo, dry_run: bool) -> None:
 
         logger.info(f"Fetched {len(tasks)} tasks from Todoist ({initial_task_count - len(tasks)} duplicates removed)")
 
-        today = datetime.now(tz).date()
-        logger.info(f"Checking for tasks due today: {today}")
+        now = datetime.now(tz)
+        logger.info(f"Checking for tasks due by: {now:%Y-%m-%d %H:%M}")
 
         processed_count = 0
 
@@ -107,9 +132,7 @@ def process_start_tasks(api: TodoistAPI, tz: ZoneInfo, dry_run: bool) -> None:
 
         for task in tasks:
             if task.labels and LABEL_TO_MATCH_START_TASKS in task.labels and task.due:
-                due: date = cast(date, task.due.date)
-
-                if due <= today:
+                if start_reached(task.due.date, now):
                     logger.info(f"Processing task: {task.content} (ID: {task.id})")
 
                     if dry_run:
@@ -240,7 +263,7 @@ def process_recurring_tasks(api: TodoistAPI, tz: ZoneInfo, dry_run: bool) -> Non
         floated_count = 0
 
         for task in tasks:
-            if not task.due or cast(date, task.due.date) > today:
+            if not task.due or due_date_of(task.due.date, tz) > today:
                 continue
 
             # Removing the date drops its recurrence, so keep it as a Repeat: line
