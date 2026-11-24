@@ -18,9 +18,10 @@
 
 bases = ["Top", "Quick"]
 
+# Tasks tagged both @home and @office show in Home and Office, but not Out
 [contexts]
-Home   = { hide = ["@office"] }
-Office = { hide = ["@home"] }
+Home   = { hide = ["@office & !@home"] }
+Office = { hide = ["@home & !@office"] }
 Out    = { hide = ["@home", "@office", "@comp"] }
 
 # Morning tasks only between 5am and 10am
